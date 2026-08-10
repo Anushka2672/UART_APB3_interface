@@ -1,0 +1,132 @@
+`timescale 1ns / 1ps
+
+module uart_receiver (
+    input  wire       clk,
+    input  wire       rst,
+
+    input  wire       rx,
+    input  wire       rx_tick,
+
+    output reg [7:0]  data_out,
+    output reg        data_valid
+);
+
+localparam IDLE  = 2'b00;
+localparam START = 2'b01;
+localparam DATA  = 2'b10;
+localparam STOP  = 2'b11;
+
+reg [1:0] state;
+
+reg [3:0] sample_count;
+reg [2:0] bit_count;
+
+reg [7:0] shift_reg;
+
+always @(posedge clk or posedge rst)
+begin
+    if (rst)
+    begin
+        state        <= IDLE;
+        sample_count <= 4'd0;
+        bit_count    <= 3'd0;
+        shift_reg    <= 8'h00;
+
+        data_out     <= 8'h00;
+        data_valid   <= 1'b0;
+    end
+    else
+    begin
+        data_valid <= 1'b0;
+
+        if (rx_tick)
+        begin
+            case (state)
+
+                IDLE:
+                begin
+                    sample_count <= 4'd0;
+
+                    if (rx == 1'b0)
+                    begin
+                        state        <= START;
+                        sample_count <= 4'd0;
+                    end
+                end
+
+                START:
+                begin
+                    if (sample_count == 4'd7)
+                    begin
+                        sample_count <= 4'd0;
+
+                        if (rx == 1'b0)
+                        begin
+                            state     <= DATA;
+                            bit_count <= 3'd0;
+                        end
+                        else
+                        begin
+                            state <= IDLE;
+                        end
+                    end
+                    else
+                    begin
+                        sample_count <= sample_count + 1'b1;
+                    end
+                end
+
+                DATA:
+                begin
+                    if (sample_count == 4'd15)
+                    begin
+                        sample_count <= 4'd0;
+
+                        shift_reg[bit_count] <= rx;
+
+                        if (bit_count == 3'd7)
+                        begin
+                            state <= STOP;
+                        end
+                        else
+                        begin
+                            bit_count <= bit_count + 1'b1;
+                        end
+                    end
+                    else
+                    begin
+                        sample_count <= sample_count + 1'b1;
+                    end
+                end
+
+                STOP:
+                begin
+                    if (sample_count == 4'd15)
+                    begin
+                        sample_count <= 4'd0;
+
+                        if (rx == 1'b1)
+                        begin
+                            data_out   <= shift_reg;
+                            data_valid <= 1'b1;
+                        end
+
+                        state <= IDLE;
+                    end
+                    else
+                    begin
+                        sample_count <= sample_count + 1'b1;
+                    end
+                end
+
+                default:
+                begin
+                    state <= IDLE;
+                end
+
+            endcase
+        end
+    end
+end
+
+endmodule
