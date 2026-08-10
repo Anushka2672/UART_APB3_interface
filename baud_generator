@@ -1,0 +1,59 @@
+`timescale 1ns / 1ps
+
+module baud_generator #(
+    parameter CLK_FREQ  = 100_000_000,
+    parameter BAUD_RATE = 9600
+)(
+    input  wire clk,
+    input  wire rst,
+
+    output reg rx_tick,
+    output reg tx_tick
+);
+
+localparam integer TX_DIV = CLK_FREQ / BAUD_RATE;
+localparam integer RX_DIV = CLK_FREQ / (BAUD_RATE * 16);
+
+reg [15:0] tx_count;
+reg [15:0] rx_count;
+
+always @(posedge clk or posedge rst)
+begin
+    if (rst)
+    begin
+        tx_count <= 16'd0;
+        rx_count <= 16'd0;
+
+        tx_tick <= 1'b0;
+        rx_tick <= 1'b0;
+    end
+    else
+    begin
+
+        // TX 
+        if (tx_count == TX_DIV - 1)
+        begin
+            tx_count <= 16'd0;
+            tx_tick  <= 1'b1;
+        end
+        else
+        begin
+            tx_count <= tx_count + 1'b1;
+            tx_tick  <= 1'b0;
+        end
+ //rx
+        if (rx_count == RX_DIV - 1)
+        begin
+            rx_count <= 16'd0;
+            rx_tick  <= 1'b1;
+        end
+        else
+        begin
+            rx_count <= rx_count + 1'b1;
+            rx_tick  <= 1'b0;
+        end
+
+    end
+end
+
+endmodule
