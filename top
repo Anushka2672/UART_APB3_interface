@@ -1,0 +1,183 @@
+`timescale 1ns / 1ps
+
+module uart_top (
+    input  wire       clk,
+    input  wire       cpu_resetn,
+    input  wire       rx,
+    output wire [3:0] led
+);
+
+
+    wire rst;
+    assign rst = ~cpu_resetn;
+
+
+
+    wire       rx_tick;
+    wire       tx_tick;
+
+    wire [7:0] uart_rx_data;
+    wire       uart_rx_valid;
+
+
+
+    reg rx_ff1;
+    reg rx_ff2;
+
+    always @(posedge clk or posedge rst)
+    begin
+        if (rst)
+        begin
+            rx_ff1 <= 1'b1;
+            rx_ff2 <= 1'b1;
+        end
+        else
+        begin
+            rx_ff1 <= rx;
+            rx_ff2 <= rx_ff1;
+        end
+    end
+
+
+
+    baud_generator #(
+        .CLK_FREQ  (100_000_000),
+        .BAUD_RATE (9600)
+    )
+    BAUD_GEN
+    (
+        .clk     (clk),
+        .rst     (rst),
+        .rx_tick (rx_tick),
+        .tx_tick (tx_tick)
+    );
+
+
+
+    uart_receiver UART_RX
+    (
+        .clk        (clk),
+        .rst        (rst),
+
+        .rx         (rx_ff2),
+        .rx_tick    (rx_tick),
+
+        .data_out   (uart_rx_data),
+        .data_valid (uart_rx_valid)
+    );
+
+
+
+    reg [3:0] led_reg;
+
+    always @(posedge clk or posedge rst)
+    begin
+        if (rst)
+        begin
+            led_reg <= 4'b0000;
+        end
+        else
+        begin
+            if (uart_rx_valid)
+            begin
+
+                case (uart_rx_data)
+
+                    // ASCII '0'
+                    8'h30:
+                        led_reg <= 4'b0000;
+
+                    // ASCII '1'
+                    8'h31:
+                        led_reg <= 4'b0001;
+
+                    // ASCII '2'
+                    8'h32:
+                        led_reg <= 4'b0010;
+
+                    // ASCII '3'
+                    8'h33:
+                        led_reg <= 4'b0011;
+
+                    // ASCII '4'
+                    8'h34:
+                        led_reg <= 4'b0100;
+
+                    // ASCII '5'
+                    8'h35:
+                        led_reg <= 4'b0101;
+
+                    // ASCII '6'
+                    8'h36:
+                        led_reg <= 4'b0110;
+
+                    // ASCII '7'
+                    8'h37:
+                        led_reg <= 4'b0111;
+
+                    // ASCII '8'
+                    8'h38:
+                        led_reg <= 4'b1000;
+
+                    // ASCII '9'
+                    8'h39:
+                        led_reg <= 4'b1001;
+
+                    // ASCII 'A'
+                    8'h41:
+                        led_reg <= 4'b1010;
+
+                    // ASCII 'B'
+                    8'h42:
+                        led_reg <= 4'b1011;
+
+                    // ASCII 'C'
+                    8'h43:
+                        led_reg <= 4'b1100;
+
+                    // ASCII 'D'
+                    8'h44:
+                        led_reg <= 4'b1101;
+
+                    // ASCII 'E'
+                    8'h45:
+                        led_reg <= 4'b1110;
+
+                    // ASCII 'F'
+                    8'h46:
+                        led_reg <= 4'b1111;
+
+                    // Lowercase a-f
+                    8'h61:
+                        led_reg <= 4'b1010;
+
+                    8'h62:
+                        led_reg <= 4'b1011;
+
+                    8'h63:
+                        led_reg <= 4'b1100;
+
+                    8'h64:
+                        led_reg <= 4'b1101;
+
+                    8'h65:
+                        led_reg <= 4'b1110;
+
+                    8'h66:
+                        led_reg <= 4'b1111;
+
+                    // Anything else
+                    default:
+                        led_reg <= 4'b0000;
+
+                endcase
+
+            end
+        end
+    end
+
+
+
+    assign led = led_reg;
+
+endmodule
