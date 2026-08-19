@@ -1,183 +1,326 @@
 `timescale 1ns / 1ps
 
-module uart_top (
+module top (
     input  wire       clk,
     input  wire       cpu_resetn,
+
     input  wire       rx,
+    output wire       tx,
+
     output wire [3:0] led
 );
 
+wire rst;
+assign rst = ~cpu_resetn;
 
-    wire rst;
-    assign rst = ~cpu_resetn;
+wire rx_tick;
+wire tx_tick;
 
+wire [7:0] uart_rx_data;
+wire       uart_rx_valid;
 
+reg rx_ff1;
+reg rx_ff2;
 
-    wire       rx_tick;
-    wire       tx_tick;
-
-    wire [7:0] uart_rx_data;
-    wire       uart_rx_valid;
-
-
-
-    reg rx_ff1;
-    reg rx_ff2;
-
-    always @(posedge clk or posedge rst)
+always @(posedge clk or posedge rst)
+begin
+    if (rst)
     begin
-        if (rst)
+        rx_ff1 <= 1'b1;
+        rx_ff2 <= 1'b1;
+    end
+    else
+    begin
+        rx_ff1 <= rx;
+        rx_ff2 <= rx_ff1;
+    end
+end
+
+baud_generator #(
+    .CLK_FREQ  (100_000_000),
+    .BAUD_RATE (9600)
+)
+BAUD_GEN
+(
+    .clk     (clk),
+    .rst     (rst),
+    .rx_tick (rx_tick),
+    .tx_tick (tx_tick)
+);
+
+uart_receiver UART_RX
+(
+    .clk        (clk),
+    .rst        (rst),
+    .rx         (rx_ff2),
+    .rx_tick    (rx_tick),
+    .data_out   (uart_rx_data),
+    .data_valid (uart_rx_valid)
+);
+
+reg [7:0] received_char;
+
+wire enter_received;
+
+assign enter_received =
+    uart_rx_valid &&
+    (uart_rx_data == 8'h0D);
+
+always @(posedge clk or posedge rst)
+begin
+    if (rst)
+    begin
+        received_char <= 8'h00;
+    end
+    else
+    begin
+        if (uart_rx_valid)
         begin
-            rx_ff1 <= 1'b1;
-            rx_ff2 <= 1'b1;
-        end
-        else
-        begin
-            rx_ff1 <= rx;
-            rx_ff2 <= rx_ff1;
+            case (uart_rx_data)
+
+                8'h30,
+                8'h31,
+                8'h32,
+                8'h33,
+                8'h34,
+                8'h35,
+                8'h36,
+                8'h37,
+                8'h38,
+                8'h39,
+                8'h41,
+                8'h42,
+                8'h43,
+                8'h44,
+                8'h45,
+                8'h46,
+                8'h61,
+                8'h62,
+                8'h63,
+                8'h64,
+                8'h65,
+                8'h66:
+                begin
+                    received_char <= uart_rx_data;
+                end
+
+                default:
+                begin
+                    received_char <= received_char;
+                end
+
+            endcase
         end
     end
+end
 
+wire        apb_start;
 
+wire        psel;
+wire        penable;
+wire        pwrite;
 
-    baud_generator #(
-        .CLK_FREQ  (100_000_000),
-        .BAUD_RATE (9600)
-    )
-    BAUD_GEN
-    (
-        .clk     (clk),
-        .rst     (rst),
-        .rx_tick (rx_tick),
-        .tx_tick (tx_tick)
-    );
+wire [7:0]  paddr;
+wire [7:0]  pwdata;
+wire [7:0]  prdata;
 
+wire        pready;
+wire        pslverr;
 
+wire [7:0]  read_data;
 
-    uart_receiver UART_RX
-    (
-        .clk        (clk),
-        .rst        (rst),
+wire        apb_done;
+wire        apb_error;
 
-        .rx         (rx_ff2),
-        .rx_tick    (rx_tick),
+wire uart_sel;
+wire gpio_sel;
+wire fifo_sel;
+wire pwm_sel;
 
-        .data_out   (uart_rx_data),
-        .data_valid (uart_rx_valid)
-    );
+assign apb_start = enter_received;
 
+apb3_master APB_MASTER
+(
+    .clk          (clk),
+    .rst          (rst),
 
+    .start        (apb_start),
+    .rw           (1'b1),
 
-    reg [3:0] led_reg;
+    .command_data ({received_char, 8'h05}),
 
-    always @(posedge clk or posedge rst)
+    .pready       (pready),
+    .pslverr      (pslverr),
+    .prdata       (prdata),
+
+    .psel         (psel),
+    .penable      (penable),
+    .pwrite       (pwrite),
+
+    .paddr        (paddr),
+    .pwdata       (pwdata),
+
+    .read_data    (read_data),
+
+    .done         (apb_done),
+    .error        (apb_error)
+);
+
+apb3_decoder APB_DECODER
+(
+    .psel       (psel),
+    .paddr      (paddr),
+
+    .uart_sel   (uart_sel),
+    .gpio_sel   (gpio_sel),
+    .fifo_sel   (fifo_sel),
+    .pwm_sel    (pwm_sel)
+);
+
+wire [7:0] uart_slave_tx_data;
+wire       uart_slave_tx_valid;
+
+wire       uart_slave_pready;
+wire       uart_slave_pslverr;
+
+apb3_uart_slave UART_SLAVE
+(
+    .PCLK          (clk),
+    .PRESETn       (cpu_resetn),
+
+    .PSEL          (uart_sel),
+    .PENABLE       (penable),
+    .PWRITE        (pwrite),
+
+    .PADDR         (paddr),
+    .PWDATA        (pwdata),
+
+    .PRDATA        (prdata),
+
+    .PREADY        (uart_slave_pready),
+    .PSLVERR       (uart_slave_pslverr),
+
+    .uart_rx_data  (uart_rx_data),
+    .uart_rx_valid (uart_rx_valid),
+
+    .uart_tx_data  (uart_slave_tx_data),
+    .uart_tx_valid (uart_slave_tx_valid)
+);
+
+assign pready  = uart_slave_pready;
+assign pslverr = uart_slave_pslverr;
+
+reg [3:0] led_reg;
+
+always @(posedge clk or posedge rst)
+begin
+    if (rst)
     begin
-        if (rst)
+        led_reg <= 4'b0000;
+    end
+    else
+    begin
+        if (apb_done && !apb_error)
         begin
-            led_reg <= 4'b0000;
+            case (received_char)
+
+                8'h30: led_reg <= 4'h0;
+                8'h31: led_reg <= 4'h1;
+                8'h32: led_reg <= 4'h2;
+                8'h33: led_reg <= 4'h3;
+                8'h34: led_reg <= 4'h4;
+                8'h35: led_reg <= 4'h5;
+                8'h36: led_reg <= 4'h6;
+                8'h37: led_reg <= 4'h7;
+                8'h38: led_reg <= 4'h8;
+                8'h39: led_reg <= 4'h9;
+
+                8'h41: led_reg <= 4'hA;
+                8'h42: led_reg <= 4'hB;
+                8'h43: led_reg <= 4'hC;
+                8'h44: led_reg <= 4'hD;
+                8'h45: led_reg <= 4'hE;
+                8'h46: led_reg <= 4'hF;
+
+                8'h61: led_reg <= 4'hA;
+                8'h62: led_reg <= 4'hB;
+                8'h63: led_reg <= 4'hC;
+                8'h64: led_reg <= 4'hD;
+                8'h65: led_reg <= 4'hE;
+                8'h66: led_reg <= 4'hF;
+
+                default:
+                    led_reg <= led_reg;
+
+            endcase
         end
-        else
+    end
+end
+
+reg [7:0] tx_data_reg;
+reg       tx_start_reg;
+
+wire      tx_busy;
+
+localparam integer TX_DELAY_COUNT = 200_000_000;
+
+reg [27:0] tx_delay_count;
+reg        tx_delay_active;
+
+always @(posedge clk or posedge rst)
+begin
+    if (rst)
+    begin
+        tx_data_reg     <= 8'h00;
+        tx_start_reg    <= 1'b0;
+        tx_delay_count  <= 28'd0;
+        tx_delay_active <= 1'b0;
+    end
+    else
+    begin
+        tx_start_reg <= 1'b0;
+
+        if (apb_done &&
+            !apb_error &&
+            !tx_delay_active &&
+            !tx_busy)
         begin
-            if (uart_rx_valid)
+            tx_data_reg     <= received_char;
+            tx_delay_count  <= 28'd0;
+            tx_delay_active <= 1'b1;
+        end
+
+        else if (tx_delay_active)
+        begin
+            if (tx_delay_count == TX_DELAY_COUNT - 1)
             begin
+                tx_delay_count  <= 28'd0;
+                tx_delay_active <= 1'b0;
 
-                case (uart_rx_data)
-
-                    // ASCII '0'
-                    8'h30:
-                        led_reg <= 4'b0000;
-
-                    // ASCII '1'
-                    8'h31:
-                        led_reg <= 4'b0001;
-
-                    // ASCII '2'
-                    8'h32:
-                        led_reg <= 4'b0010;
-
-                    // ASCII '3'
-                    8'h33:
-                        led_reg <= 4'b0011;
-
-                    // ASCII '4'
-                    8'h34:
-                        led_reg <= 4'b0100;
-
-                    // ASCII '5'
-                    8'h35:
-                        led_reg <= 4'b0101;
-
-                    // ASCII '6'
-                    8'h36:
-                        led_reg <= 4'b0110;
-
-                    // ASCII '7'
-                    8'h37:
-                        led_reg <= 4'b0111;
-
-                    // ASCII '8'
-                    8'h38:
-                        led_reg <= 4'b1000;
-
-                    // ASCII '9'
-                    8'h39:
-                        led_reg <= 4'b1001;
-
-                    // ASCII 'A'
-                    8'h41:
-                        led_reg <= 4'b1010;
-
-                    // ASCII 'B'
-                    8'h42:
-                        led_reg <= 4'b1011;
-
-                    // ASCII 'C'
-                    8'h43:
-                        led_reg <= 4'b1100;
-
-                    // ASCII 'D'
-                    8'h44:
-                        led_reg <= 4'b1101;
-
-                    // ASCII 'E'
-                    8'h45:
-                        led_reg <= 4'b1110;
-
-                    // ASCII 'F'
-                    8'h46:
-                        led_reg <= 4'b1111;
-
-                    // Lowercase a-f
-                    8'h61:
-                        led_reg <= 4'b1010;
-
-                    8'h62:
-                        led_reg <= 4'b1011;
-
-                    8'h63:
-                        led_reg <= 4'b1100;
-
-                    8'h64:
-                        led_reg <= 4'b1101;
-
-                    8'h65:
-                        led_reg <= 4'b1110;
-
-                    8'h66:
-                        led_reg <= 4'b1111;
-
-                    // Anything else
-                    default:
-                        led_reg <= 4'b0000;
-
-                endcase
-
+                tx_start_reg <= 1'b1;
+            end
+            else
+            begin
+                tx_delay_count <= tx_delay_count + 1'b1;
             end
         end
     end
+end
 
+uart_transmitter UART_TX
+(
+    .clk      (clk),
+    .rst      (rst),
 
+    .tx_tick  (tx_tick),
 
-    assign led = led_reg;
+    .data_in  (tx_data_reg),
+    .tx_start (tx_start_reg),
+
+    .tx       (tx),
+    .tx_busy  (tx_busy)
+);
+
+assign led = led_reg;
 
 endmodule
