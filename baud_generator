@@ -29,8 +29,6 @@ begin
     end
     else
     begin
-
-        // TX 
         if (tx_count == TX_DIV - 1)
         begin
             tx_count <= 16'd0;
@@ -41,7 +39,7 @@ begin
             tx_count <= tx_count + 1'b1;
             tx_tick  <= 1'b0;
         end
- //rx
+
         if (rx_count == RX_DIV - 1)
         begin
             rx_count <= 16'd0;
@@ -52,7 +50,6 @@ begin
             rx_count <= rx_count + 1'b1;
             rx_tick  <= 1'b0;
         end
-
     end
 end
 
