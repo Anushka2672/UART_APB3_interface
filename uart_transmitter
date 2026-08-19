@@ -1,0 +1,109 @@
+`timescale 1ns / 1ps
+
+module uart_transmitter (
+    input  wire       clk,
+    input  wire       rst,
+
+    input  wire       tx_tick,
+
+    input  wire [7:0] data_in,
+    input  wire       tx_start,
+
+    output reg        tx,
+    output reg        tx_busy
+);
+
+localparam IDLE  = 2'b00;
+localparam START = 2'b01;
+localparam DATA  = 2'b10;
+localparam STOP  = 2'b11;
+
+reg [1:0] state;
+reg [7:0] tx_data;
+reg [2:0] bit_count;
+
+always @(posedge clk or posedge rst)
+begin
+    if (rst)
+    begin
+        state     <= IDLE;
+        tx_data   <= 8'h00;
+        bit_count <= 3'd0;
+        tx        <= 1'b1;
+        tx_busy   <= 1'b0;
+    end
+    else
+    begin
+        case (state)
+
+            IDLE:
+            begin
+                tx        <= 1'b1;
+                tx_busy   <= 1'b0;
+                bit_count <= 3'd0;
+
+                if (tx_start)
+                begin
+                    tx_data <= data_in;
+                    tx_busy <= 1'b1;
+                    tx      <= 1'b0;
+                    state   <= START;
+                end
+            end
+
+            START:
+            begin
+                tx_busy <= 1'b1;
+
+                if (tx_tick)
+                begin
+                    tx <= tx_data[0];
+                    bit_count <= 3'd0;
+                    state <= DATA;
+                end
+            end
+
+            DATA:
+            begin
+                tx_busy <= 1'b1;
+
+                if (tx_tick)
+                begin
+                    if (bit_count == 3'd7)
+                    begin
+                        tx    <= 1'b1;
+                        state <= STOP;
+                    end
+                    else
+                    begin
+                        bit_count <= bit_count + 1'b1;
+                        tx <= tx_data[bit_count + 1'b1];
+                    end
+                end
+            end
+
+            STOP:
+            begin
+                tx_busy <= 1'b1;
+
+                if (tx_tick)
+                begin
+                    tx      <= 1'b1;
+                    tx_busy <= 1'b0;
+                    state   <= IDLE;
+                end
+            end
+
+            default:
+            begin
+                state     <= IDLE;
+                tx        <= 1'b1;
+                tx_busy   <= 1'b0;
+                bit_count <= 3'd0;
+            end
+
+        endcase
+    end
+end
+
+endmodule
