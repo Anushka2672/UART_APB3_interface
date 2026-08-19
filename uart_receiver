@@ -1,6 +1,6 @@
 `timescale 1ns / 1ps
 
-module uart_receiver (
+module uart_receiver(
     input  wire       clk,
     input  wire       rst,
 
@@ -121,7 +121,9 @@ begin
 
                 default:
                 begin
-                    state <= IDLE;
+                    state        <= IDLE;
+                    sample_count <= 4'd0;
+                    bit_count    <= 3'd0;
                 end
 
             endcase
